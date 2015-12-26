@@ -13,17 +13,23 @@ namespace GUI
 {
     public partial class Form1 : Form
     {
-        private Presenter Presenter = new Presenter();
+        private readonly Presenter Presenter;
 
         public Form1()
         {
             InitializeComponent();
-        }        
+            Presenter = new Presenter(this);
+        }
 
-        private void button1_Click(object sender, EventArgs e)
+        private async void button1_Click(object sender, EventArgs e)
+        {
+            await button1_ClickAsync();
+        }
+
+        private async Task button1_ClickAsync()
         {
             listBox1.DataBindings.Clear();
-            Presenter.RetrieveAndFillGrid();
+            await Presenter.RetrieveAndFillGrid();
         }
 
         public void SetDataSourceOnList(BindingList<int> source)
@@ -36,14 +42,28 @@ namespace GUI
             Presenter.SendMessage += Presenter_SendMessage;
         }
 
-        private void Presenter_SendMessage(object sender, SendMessageArgs args)
+        private void Presenter_SendMessage(object sender, Presenter.SendMessageArgs args)
         {
-            Invoke(new Action(()=> label1.Text = args.Message));
+            label1.Text = args.Message;
         }
     }
 
     public class Presenter
     {
+        private readonly Form1 View;
+        private readonly SynchronizationContext GuiSyncContex;
+
+        public Presenter(Form1 view)
+        {
+            View = view;
+            GuiSyncContex = SynchronizationContext.Current;
+        }
+
+        public class SendMessageArgs
+        {
+            public string Message { get; set; }
+        }
+
         public delegate void SendMessageHandler(object sender, SendMessageArgs args);
 
         public event SendMessageHandler SendMessage;
@@ -56,9 +76,22 @@ namespace GUI
             }
         }
 
-        internal void RetrieveAndFillGrid()
+        internal async Task RetrieveAndFillGrid()
         {
-            DoLongTask1();
+            var bindingList = new BindingList<int>();
+            View.SetDataSourceOnList(bindingList);
+
+            await Task.Run(() =>
+            {
+                foreach (var result in GetResults())
+                {
+                    GuiSyncContex.Post(state =>
+                    {
+                        bindingList.Add(result);
+                        WriteResultIntermediary(result);
+                    }, null);
+                }
+            });
         }
 
         private void DoLongTask0()
@@ -97,9 +130,14 @@ namespace GUI
             WriteLine("Task done.");
         }
 
-        private void WriteResult(int result)
+        private void WriteResultDone(int result)
         {
             WriteLine("Long task done. Result is: " + result);
+        }
+
+        private void WriteResultIntermediary(int result)
+        {
+            WriteLine(string.Format("Intermediary result {0}", result));
         }
 
         private void WriteResult(IEnumerable<int> results)
@@ -132,10 +170,5 @@ namespace GUI
         }
 
         private Random random = new Random(DateTime.Now.Millisecond);
-    }
-
-    public class SendMessageArgs
-    {
-        public string Message { get; set; }
     }
 }
